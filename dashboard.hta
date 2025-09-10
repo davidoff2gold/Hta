@@ -1,0 +1,183 @@
+<!-- dashboard.hta -->
+<html>
+<head>
+  <HTA:APPLICATION ID="sapdash" APPLICATIONNAME="SAP Dashboard"
+    SINGLEINSTANCE="yes" SCROLL="yes" BORDER="thin" CAPTION="yes" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta charset="utf-8">
+  <title>SAP Dashboard</title>
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Segoe UI,Arial,sans-serif;background:#0b1020;color:#e8ecf1}
+    .layout{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
+    .sidebar{background:#0f1730;border-right:1px solid #1e2742;padding:14px}
+    .brand{font-weight:600;margin-bottom:12px;opacity:.9}
+    .nav button{width:100%;text-align:left;background:#0f1730;border:1px solid #1e2742;color:#e8ecf1;
+      padding:10px;border-radius:10px;margin-bottom:8px;cursor:pointer}
+    .nav button.active{background:#131b38}
+    .main{padding:16px}
+    .bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+    .bar button,.bar input{padding:8px 10px;border-radius:8px;border:1px solid #2a3148;background:#0f1730;color:#e8ecf1;cursor:pointer}
+    .grid{display:grid;grid-template-columns:1fr;gap:12px}
+    .card{background:#0f1730;border:1px solid #1e2742;border-radius:12px;padding:12px}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:8px 10px;border-bottom:1px solid #1e2742;font-size:13px;vertical-align:top}
+    th{background:#131b38;position:sticky;top:0;text-align:left}
+    tr:hover{background:#152045}
+    #status{opacity:.8}
+    pre{white-space:pre-wrap}
+  </style>
+
+  <script language="JScript">
+    function escapeHtml(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\"/g,"&quot;");}
+    function renderJsonStringToTable(jsonText, hostId){
+      var host=document.getElementById(hostId);
+      try{
+        var data=window.eval('('+jsonText+')');
+        if(!data || !data.length){ host.innerHTML="<div class='card'>Brak danych.</div>"; return; }
+        var keys=Object.keys(data[0]);
+        var html="<div class='card'><div style='overflow:auto;max-height:70vh'><table><thead><tr>";
+        for(var i=0;i<keys.length;i++) html+="<th>"+escapeHtml(keys[i])+"</th>";
+        html+="</tr></thead><tbody>";
+        for(var r=0;r<data.length;r++){
+          html+="<tr>";
+          for(var i=0;i<keys.length;i++) html+="<td>"+escapeHtml(data[r][keys[i]])+"</td>";
+          html+="</tr>";
+        }
+        html+="</tbody></table></div></div>";
+        host.innerHTML=html;
+      }catch(e){
+        host.innerHTML="<div class='card'><b>Błąd parsowania JSON:</b><br><pre>"+escapeHtml(e.message)+"</pre></div>";
+      }
+    }
+    function selectCategory(cat){ try{ window.LoadCategory(cat); }catch(e){} }
+  </script>
+
+  <script language="VBScript">
+    Option Explicit
+    Dim gBase, gCurrentCat
+
+    Sub Window_OnLoad()
+      On Error Resume Next
+      gBase = GetBase()
+      EnsureFolder gBase & "\data"
+      EnsureFolder gBase & "\logs"
+      LogMsg "Start aplikacji"
+      gCurrentCat = "test"
+      UpdateActiveNav gCurrentCat
+      LoadCategory gCurrentCat
+    End Sub
+
+    Sub LoadCategory(cat)
+      On Error Resume Next
+      gCurrentCat = cat
+      UpdateActiveNav cat
+      Dim path : path = gBase & "\data\" & cat & ".json"
+      If Not FileExists(path) Then
+        document.getElementById("dataHost").innerHTML = "<div class='card'>Brak pliku danych: " & Html(path) & "</div>"
+        Exit Sub
+      End If
+      Dim txt : txt = ReadAllText(path)
+      If txt = "" Then Exit Sub
+      Call window.renderJsonStringToTable(txt, "dataHost")
+      document.getElementById("status").innerText = "Załadowano: " & cat & ".json"
+      LogMsg "Załadowano kategorię: " & cat
+    End Sub
+
+    Sub UpdateActiveNav(cat)
+      Dim ids, i
+      ids = Array("test","k2","k3","k4")
+      For i = 0 To UBound(ids)
+        Dim el : Set el = document.getElementById("nav-" & ids(i))
+        If Not el Is Nothing Then
+          If ids(i)=cat Then el.className="active" Else el.className=""
+        End If
+      Next
+    End Sub
+
+    Sub BtnRefreshTest()
+      Dim rc : rc = RunWorker("fetch_test.vbs")
+      If rc = 0 Then
+        LogMsg "fetch_test.vbs OK"
+        LoadCategory "test"
+      Else
+        LogMsg "ERR fetch_test.vbs rc=" & rc
+      End If
+    End Sub
+
+    Function GetBase()
+      Dim p : p = document.location.pathname
+      p = Replace(p, "file:///", "")
+      p = Replace(p, "/", "\")
+      GetBase = CreateObject("Scripting.FileSystemObject").GetParentFolderName(p)
+    End Function
+
+    Sub EnsureFolder(path)
+      Dim fso : Set fso = CreateObject("Scripting.FileSystemObject")
+      If Not fso.FolderExists(path) Then fso.CreateFolder path
+    End Sub
+
+    Function FileExists(path)
+      FileExists = CreateObject("Scripting.FileSystemObject").FileExists(path)
+    End Function
+
+    Function ReadAllText(path)
+      Dim fso, f, txt
+      Set fso = CreateObject("Scripting.FileSystemObject")
+      Set f = fso.OpenTextFile(path, 1, False)
+      txt = f.ReadAll
+      f.Close
+      ReadAllText = txt
+    End Function
+
+    Function RunWorker(fileName)
+      Dim sh, cmd, rc
+      Set sh = CreateObject("WScript.Shell")
+      cmd = "wscript.exe " & Chr(34) & gBase & "\scripts\" & fileName & Chr(34)
+      rc = sh.Run(cmd, 1, True)
+      RunWorker = rc
+    End Function
+
+    Function Html(s)
+      s = Replace(s, "&", "&amp;")
+      s = Replace(s, "<", "&lt;")
+      s = Replace(s, ">", "&gt;")
+      s = Replace(s, """, "&quot;")
+      Html = s
+    End Function
+
+    Sub LogMsg(msg)
+      Dim fso, tf
+      Set fso = CreateObject("Scripting.FileSystemObject")
+      Dim path : path = gBase & "\logs\app.log"
+      Set tf = fso.OpenTextFile(path, 8, True)
+      tf.WriteLine Now & " | " & msg
+      tf.Close
+    End Sub
+  </script>
+</head>
+
+<body>
+  <div class="layout">
+    <div class="sidebar">
+      <div class="brand">SAP Dashboard</div>
+      <div class="nav">
+        <button id="nav-test" class="active" onclick="selectCategory('test')">Kategoria 1 (test)</button>
+        <button id="nav-k2" onclick="selectCategory('k2')">Kategoria 2</button>
+        <button id="nav-k3" onclick="selectCategory('k3')">Kategoria 3</button>
+        <button id="nav-k4" onclick="selectCategory('k4')">Kategoria 4</button>
+      </div>
+    </div>
+
+    <div class="main">
+      <div class="bar">
+        <button onclick="BtnRefreshTest()">Odśwież (test)</button>
+        <span id="status"></span>
+      </div>
+      <div id="dataHost" class="grid">
+        <div class="card">Kliknij „Odśwież (test)”.</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
